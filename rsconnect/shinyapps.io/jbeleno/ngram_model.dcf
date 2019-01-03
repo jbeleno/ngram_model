@@ -1,0 +1,13 @@
+name: ngram_model
+title: ngram_model
+username:
+account: jbeleno
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 625925
+bundleId: 1794146
+url: https://jbeleno.shinyapps.io/ngram_model/
+when: 1546483576.26073
+asMultiple: FALSE
+asStatic: FALSE
+ignoredFiles: .gitattributes
