@@ -1,4 +1,5 @@
 library(shiny)
+library(data.table)
 
 english = 'en_US'
 language <- english
@@ -10,48 +11,26 @@ filename_bigram_gte <- sprintf('./assets/bigram_estimations-%s.csv', language)[1
 filename_trigram_gte <- sprintf('./assets/trigram_estimations-%s.csv', language)[1]
 filename_model <- sprintf('./assets/ngrams_model-%s.csv', language)[1]
 
-load_env_from_csv <- function(filename) {
-  data <- read.csv(filename, header = TRUE, stringsAsFactors=FALSE)
-  keys <- as.vector(data['key'])
-  values <- as.vector(data['value'])
-  data_list <- as.list(values[[1]])
-  names(data_list) <- keys[[1]]
-  
-  data_size <- length(data_list)
-  chunk_size <- 10000
-  num_loops <- ceiling(data_size/chunk_size)
-  dictionary <- new.env(hash=TRUE)
-  
-  for (index in 1:num_loops) {
-    start <- (index - 1) * chunk_size + 1
-    end <- (index - 1) * chunk_size + chunk_size
-    if (index == num_loops) {
-      end <- data_size
-    }
-    print(start)
-    dictionary <- list2env(data_list[start:end], envir=dictionary, hash=TRUE)
-  }
-  
-  dictionary
+load_datatable_from_csv <- function(filename) {
+  data <- fread(filename, header = TRUE, stringsAsFactors=FALSE)
+  setkey(data, key)
+  data
 }
 
-
-ngram_model <- load_env_from_csv(filename_model)
-ngram_keys <- ls(ngram_model)
-index <- 0
-for (key in ngram_keys) {
-  print(index)
-  index <- index + 1
-  ngram_model[[key]] <- unlist(strsplit(ngram_model[[key]], "|", fixed = TRUE))
-}
-rm(ngram_keys)
-
-unigrams <- load_env_from_csv(filename_unigrams)
-bigrams <- load_env_from_csv(filename_bigrams)
-trigrams <- load_env_from_csv(filename_trigrams)
-unigram_estimations <- load_env_from_csv(filename_unigram_gte)
-bigram_estimations <- load_env_from_csv(filename_bigram_gte)
-trigram_estimations <- load_env_from_csv(filename_trigram_gte)
+ngram_model <- load_datatable_from_csv(filename_model)
+print(object.size(ngram_model))
+unigrams <- load_datatable_from_csv(filename_unigrams)
+print(object.size(unigrams))
+bigrams <- load_datatable_from_csv(filename_bigrams)
+print(object.size(bigrams))
+trigrams <- load_datatable_from_csv(filename_trigrams)
+print(object.size(trigrams))
+unigram_estimations <- load_datatable_from_csv(filename_unigram_gte)
+print(object.size(unigram_estimations))
+bigram_estimations <- load_datatable_from_csv(filename_bigram_gte)
+print(object.size(bigram_estimations))
+trigram_estimations <- load_datatable_from_csv(filename_trigram_gte)
+print(object.size(trigram_estimations))
 
 clean_text <- function(text) {
   clean_line <- tolower(text)
@@ -66,20 +45,20 @@ clean_text <- function(text) {
 katz_backoff_model <- function(ngram){
   ngram_size <- length(ngram)
   n <- ngram_size
-  prediction <- new.env(hash=TRUE)
-  
+  prediction <- new.env(hash=TRUE, size = NA, parent=emptyenv())
+
   if (ngram_size >= 2) {
     bigram <- paste(ngram[n-1], ngram[n])
-    
-    if (exists(bigram, envir=ngram_model, inherits=FALSE)) {
-      word_candidates <- ngram_model[[bigram]]
-      frequency_bigram <- bigrams[[bigram]]
+    word_candidates <- ngram_model[.(bigram), nomatch = NA]
+    if (!is.na(word_candidates)) {
+      word_candidates <- unlist(strsplit(word_candidates[['value']], "|", fixed = TRUE))
+      frequency_bigram <- bigrams[.(bigram), nomatch = 0][['value']]
       cumulative_probability <- 0
       for (word in word_candidates) {
         trigram_candidate <- paste(bigram, word)
-        frequency_trigram <- trigrams[[trigram_candidate]]
-        gte_estimation <- trigram_estimations[[toString(frequency_trigram)]]
-        probability <- gte_estimation/frequency_bigram
+        frequency_trigram <- trigrams[.(trigram_candidate), nomatch = 0][['value']]
+        gte_estimation <- trigram_estimations[.(frequency_trigram), nomatch = 0][['value']]
+        probability <- gte_estimation/as.integer(frequency_bigram)
         prediction[[word]] <- probability
         
         cumulative_probability <- cumulative_probability + probability
@@ -104,14 +83,15 @@ katz_backoff_model <- function(ngram){
     }
   } else if (ngram_size == 1) {
     unigram <- ngram[n]
-    if (exists(unigram, envir=ngram_model, inherits=FALSE)) {
-      word_candidates <- ngram_model[[unigram]]
-      frequency_unigram <- unigrams[[unigram]]
+    word_candidates <- ngram_model[.(unigram), nomatch = NA]
+    if (!is.na(word_candidates)) {
+      word_candidates <- unlist(strsplit(word_candidates[['value']], "|", fixed = TRUE))
+      frequency_unigram <- unigrams[.(unigram), nomatch = 0][['value']]
       for (word in word_candidates) {
         bigram_candidate <- paste(unigram, word)
-        frequency_bigram <- bigrams[[bigram_candidate]]
-        gte_estimation <- bigram_estimations[[toString(frequency_bigram)]]
-        probability <- gte_estimation/frequency_bigram
+        frequency_bigram <- bigrams[.(bigram_candidate), nomatch = 0][['value']]
+        gte_estimation <- bigram_estimations[.(frequency_bigram), nomatch = 0][['value']]
+        probability <- gte_estimation/as.integer(frequency_unigram)
         prediction[[word]] <- probability
       }
     }
